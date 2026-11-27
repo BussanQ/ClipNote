@@ -22,7 +22,7 @@ func sample(t *testing.T) *panel {
 	for _, text := range []string{"sixth row", "fifth row", "fourth row", "Third example", "Second example", "  First example\noriginal  "} {
 		s.Add(text, now)
 	}
-	p := &panel{store: s, allowed: true, shortcut: "⌘J", pick: func(history.Entry) {}, close: func() {}, permission: func() {}}
+	p := &panel{store: s, allowed: true, shortcut: shortcutLabel("J"), pick: func(history.Entry) {}, close: func() {}, permission: func() {}}
 	p.refresh(true)
 	return p
 }
@@ -121,16 +121,16 @@ func TestRender(t *testing.T) {
 
 type quickPasteDesktop struct {
 	desktop
-	pid    int32
-	target int32
-	text   string
-	calls  int
+	frontWindow pasteTarget
+	target      pasteTarget
+	text        string
+	calls       int
 }
 
-func (d *quickPasteDesktop) count() int64 { return 0 }
-func (d *quickPasteDesktop) front() int32 { return d.pid }
-func (d *quickPasteDesktop) paste(pid int32, text string) error {
-	d.target, d.text = pid, text
+func (d *quickPasteDesktop) count() int64       { return 0 }
+func (d *quickPasteDesktop) front() pasteTarget { return d.frontWindow }
+func (d *quickPasteDesktop) paste(target pasteTarget, text string) error {
+	d.target, d.text = target, text
 	d.calls++
 	return nil
 }
@@ -140,11 +140,11 @@ func TestHiddenQuickPaste(t *testing.T) {
 	p.query, p.settings = "Third", true
 	p.refresh(true)
 	d := &quickPasteDesktop{}
-	a := &app{panel: p, d: d, target: 99}
+	a := &app{panel: p, d: d, target: pasteTarget{pid: 99}}
 	for i, want := range []string{"  First example\noriginal  ", "Second example", "Third example", "fourth row", "fifth row"} {
-		d.pid = int32(100 + i)
-		if err := a.pasteHidden(i); err != nil || d.text != want || d.target != d.pid || d.calls != i+1 {
-			t.Fatalf("⌘%d: text %q, target %d, calls %d, err %v", i+1, d.text, d.target, d.calls, err)
+		d.frontWindow = pasteTarget{pid: 100, window: uintptr(i + 1)}
+		if err := a.pasteHidden(i); err != nil || d.text != want || d.target != d.frontWindow || d.calls != i+1 {
+			t.Fatalf("shortcut %d: text %q, target %+v, calls %d, err %v", i+1, d.text, d.target, d.calls, err)
 		}
 	}
 	p.store.Entries = nil

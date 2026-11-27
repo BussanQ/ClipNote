@@ -1,0 +1,7 @@
+{
+  "name": "ClipNote",
+  "identifier": "app.clipnote.desktop",
+  "version": "1.0.0",
+  "icon": "packaging/ClipNote.png",
+  "resources": ["LICENSE"]
+}

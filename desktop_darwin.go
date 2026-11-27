@@ -52,9 +52,9 @@ func ns(text string) objc.ID {
 	runtime.KeepAlive(text)
 	return send[objc.ID](obj, "autorelease")
 }
-func board() objc.ID { return send[objc.ID](cls("NSPasteboard"), "generalPasteboard") }
+func board() objc.ID     { return send[objc.ID](cls("NSPasteboard"), "generalPasteboard") }
 func workspace() objc.ID { return send[objc.ID](cls("NSWorkspace"), "sharedWorkspace") }
-func frontApp() objc.ID { return send[objc.ID](workspace(), "frontmostApplication") }
+func frontApp() objc.ID  { return send[objc.ID](workspace(), "frontmostApplication") }
 func goString(str objc.ID) string {
 	n := send[uintptr](str, "lengthOfBytesUsingEncoding:", uintptr(4))
 	if n == 0 || n > 1024 {
@@ -66,8 +66,11 @@ func goString(str objc.ID) string {
 	}
 	return string(unsafe.Slice(ptr, n))
 }
-func (d *macDesktop) front() int32 {
-	return send[int32](frontApp(), "processIdentifier")
+func (d *macDesktop) front() pasteTarget {
+	return pasteTarget{pid: send[int32](frontApp(), "processIdentifier")}
+}
+func (d *macDesktop) preparePaste(target pasteTarget, _ uintptr) bool {
+	return d.front() == target
 }
 func (d *macDesktop) frontInfo() (int32, string, string) {
 	app := frontApp()
@@ -133,8 +136,9 @@ func (d *macDesktop) read() (string, bool) {
 	}
 	return string(unsafe.Slice(ptr, n)), true
 }
-func (d *macDesktop) paste(pid int32, text string) (err error) {
-	if pid <= 0 || pid == int32(os.Getpid()) || d.front() != pid {
+func (d *macDesktop) paste(target pasteTarget, text string) (err error) {
+	pid := target.pid
+	if pid <= 0 || pid == int32(os.Getpid()) || d.front() != target {
 		return errors.New("原应用不在前台，已取消粘贴")
 	}
 	if !d.canPaste() {
@@ -171,7 +175,7 @@ func (d *macDesktop) paste(pid int32, text string) (err error) {
 		return errors.New("无法写入系统剪贴板")
 	}
 
-	if d.front() != pid {
+	if d.front() != target {
 		return errors.New("原应用已切换：文本已复制，请手动粘贴")
 	}
 	d.setFlags(down, command)

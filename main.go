@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	_ "embed"
 	"fmt"
 	"image"
 	"image/color"
@@ -10,6 +11,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -19,13 +21,19 @@ import (
 	imgdraw "golang.org/x/image/draw"
 )
 
+type pasteTarget struct {
+	pid    int32
+	window uintptr // Windows distinguishes separate windows of the same process.
+}
+
 type desktop interface {
-	front() int32
+	front() pasteTarget
+	preparePaste(pasteTarget, uintptr) bool
 	count() int64
 	read() (string, bool)
 	canPaste() bool
 	askPaste() bool
-	paste(int32, string) error
+	paste(pasteTarget, string) error
 }
 
 // Optional platform metadata; the current frontmost app is only a hint
@@ -72,13 +80,27 @@ type app struct {
 	tray          *mygo.Tray
 	panel         *panel
 	lastCount     int64
-	target        int32
+	target        pasteTarget
 	busy          bool
 	quitting      bool
 	keepOpenUntil time.Time
 	shortcutErr   string
 	stopWatch     func()
 	stopTimer     chan struct{}
+}
+
+func shortcutLabel(key string) string {
+	if runtime.GOOS == "windows" {
+		return "Ctrl+" + key
+	}
+	return "⌘" + key
+}
+
+func trayLocation() string {
+	if runtime.GOOS == "windows" {
+		return "系统托盘"
+	}
+	return "菜单栏"
 }
 
 func main() {
@@ -103,7 +125,7 @@ func main() {
 		if e != nil {
 			log.Printf("ClipNote history: %v", e)
 			mygo.App.SetActivationPolicy(mygo.ActivationPolicyRegular)
-			w := mygo.NewWindow(mygo.WindowOptions{Title: "ClipNote", Width: 560, Height: 510, Content: errorView})
+			w := mygo.NewWindow(mygo.WindowOptions{Title: "ClipNote", Width: 560, Height: 510, Content: errorView(filepath.Join(dir, "ClipNote", "history.json"))})
 			w.Show()
 			return
 		}
@@ -141,7 +163,7 @@ func (a *app) ready(s *history.Store) {
 		if !a.panel.allowed {
 			a.panel.notice = "请在「系统设置 → 隐私与安全性 → 辅助功能」中启用 ClipNote。"
 		}
-	}, shortcut: "⌘J"}
+	}, shortcut: shortcutLabel("J")}
 	a.panel.allowed = a.d.canPaste()
 	if provider, ok := a.d.(appMetadata); ok {
 		a.panel.appIcon = appIcons(provider)
@@ -161,7 +183,7 @@ func (a *app) ready(s *history.Store) {
 			a.hide()
 		}
 	})
-	if err := mygo.GlobalShortcut.Register("Cmd+J", func() {
+	if err := mygo.GlobalShortcut.Register("CmdOrCtrl+J", func() {
 		if a.busy {
 			return
 		}
@@ -171,13 +193,13 @@ func (a *app) ready(s *history.Store) {
 			a.show()
 		}
 	}); err != nil {
-		a.shortcutErr = "⌘J 注册失败，请检查快捷键冲突。可从菜单栏打开。"
-		a.panel.shortcut = "菜单栏打开"
+		a.shortcutErr = shortcutLabel("J") + " 注册失败，请从" + trayLocation() + "打开。"
+		a.panel.shortcut = trayLocation() + "打开"
 		log.Printf("ClipNote shortcut: %v", err)
 	}
 	var failed []string
 	for i := range keyNums {
-		if err := mygo.GlobalShortcut.Register(fmt.Sprintf("Cmd+%d", i+1), func() {
+		if err := mygo.GlobalShortcut.Register(fmt.Sprintf("CmdOrCtrl+%d", i+1), func() {
 			if a.busy || a.quitting {
 				return
 			}
@@ -192,7 +214,7 @@ func (a *app) ready(s *history.Store) {
 				a.win.Invalidate()
 			}
 		}); err != nil {
-			failed = append(failed, fmt.Sprintf("⌘%d", i+1))
+			failed = append(failed, shortcutLabel(fmt.Sprint(i+1)))
 			log.Printf("ClipNote shortcut: %v", err)
 		}
 	}
@@ -200,7 +222,7 @@ func (a *app) ready(s *history.Store) {
 		a.shortcutErr += strings.Join(failed, "、") + " 全局注册失败，请检查快捷键冲突。"
 	}
 	var err error
-	a.tray, err = mygo.NewTray(mygo.TrayOptions{Icon: trayIcon(), IconIsTemplate: true, ToolTip: "ClipNote 剪贴板历史"})
+	a.tray, err = mygo.NewTray(mygo.TrayOptions{Icon: trayIcon(), IconIsTemplate: runtime.GOOS == "darwin", ToolTip: "ClipNote 剪贴板历史"})
 	if err == nil {
 		a.tray.SetMenu(mygo.NewMenu([]*mygo.MenuItem{
 			{Label: "打开剪贴板历史", Click: func(*mygo.MenuItem, *mygo.Window) { a.show() }},
@@ -251,7 +273,7 @@ func (a *app) capture() {
 	var appName, bundleID string
 	if provider, ok := a.d.(appMetadata); ok && !a.win.IsVisible() {
 		pid, name, id := provider.frontInfo()
-		if pid > 0 && pid != int32(os.Getpid()) && a.d.front() == pid {
+		if pid > 0 && pid != int32(os.Getpid()) && a.d.front().pid == pid {
 			appName, bundleID = name, id
 		}
 	}
@@ -295,14 +317,14 @@ func (a *app) hide() { a.win.Hide() }
 
 // Hidden shortcuts use the app at keypress and the unfiltered history.
 func (a *app) pasteHidden(index int) error {
-	pid := a.d.front()
+	target := a.d.front()
 	a.capture()
 	a.prune()
 	entries := a.panel.store.Entries
 	if index >= len(entries) {
 		return nil
 	}
-	return a.d.paste(pid, entries[index].Text)
+	return a.d.paste(target, entries[index].Text)
 }
 
 func (a *app) pick(entry history.Entry) {
@@ -314,22 +336,21 @@ func (a *app) pick(entry history.Entry) {
 		a.panel.notice = "开启辅助功能后，再用快捷键或双击粘贴。"
 		return
 	}
-	pid := a.target
-	if pid <= 0 || pid == int32(os.Getpid()) || a.d.front() != pid {
-		a.panel.notice = "找不到原应用。请回到要粘贴的位置，再按 ⌘J。"
+	target := a.target
+	if target.pid <= 0 || target.pid == int32(os.Getpid()) || !a.d.preparePaste(target, a.win.NativeHandle()) {
+		a.panel.notice = "找不到原窗口。请回到要粘贴的位置，再按 " + shortcutLabel("J") + "。"
 		return
 	}
 	a.busy = true
 	a.hide()
-	// A nonactivating panel keeps the previous app and its insertion point.
-	// Let AppKit release the panel's keyboard focus before posting to that PID.
+	// Let the desktop finish releasing the panel before sending the paste.
 	time.AfterFunc(115*time.Millisecond, func() {
 		a.win.Update(func() {
 			a.busy = false
 			if a.quitting {
 				return
 			}
-			if err := a.d.paste(pid, entry.Text); err != nil {
+			if err := a.d.paste(target, entry.Text); err != nil {
 				log.Printf("ClipNote paste: %v", err)
 				a.show()
 				a.panel.notice = err.Error()
@@ -337,7 +358,14 @@ func (a *app) pick(entry history.Entry) {
 		})
 	})
 }
+
+//go:embed packaging/ClipNote.png
+var windowsTrayIcon []byte
+
 func trayIcon() []byte {
+	if runtime.GOOS == "windows" {
+		return windowsTrayIcon
+	}
 	img := image.NewNRGBA(image.Rect(0, 0, 36, 36))
 	ink := image.NewUniform(color.NRGBA{A: 255})
 	rect := func(x1, y1, x2, y2 int) {

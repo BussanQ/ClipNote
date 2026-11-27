@@ -72,7 +72,7 @@ func preview(text string) string {
 
 type palette struct {
 	bg, card, sub, border, text, muted, accent, accentTint, danger ui.Color
-	selectionBorder, control, brand, ok ui.Color
+	selectionBorder, control, brand, ok                            ui.Color
 }
 
 func colors(dark bool) palette {
@@ -95,18 +95,18 @@ func colors(dark bool) palette {
 }
 
 func lineIcon(body string) *ui.SVG {
-	return ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">`+body+`</svg>`))
+	return ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">` + body + `</svg>`))
 }
 
 var (
-	clipIcon = lineIcon(`<rect x="8" y="3" width="8" height="4" rx="1.5"/><path d="M8 5H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2M8 12h8m-8 4h6"/>`)
-	searchIcon = lineIcon(`<circle cx="10.5" cy="10.5" r="5.8"/><path d="m15 15 4.5 4.5"/>`)
+	clipIcon     = lineIcon(`<rect x="8" y="3" width="8" height="4" rx="1.5"/><path d="M8 5H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2M8 12h8m-8 4h6"/>`)
+	searchIcon   = lineIcon(`<circle cx="10.5" cy="10.5" r="5.8"/><path d="m15 15 4.5 4.5"/>`)
 	settingsIcon = lineIcon(`<path d="M4 6h16M4 12h16M4 18h16M9 4v4m6 2v4m-5 2v4"/>`)
-	clockIcon = lineIcon(`<circle cx="12" cy="12" r="8"/><path d="M12 7.5V12l3 1.5"/>`)
-	trashIcon = lineIcon(`<path d="M5 7h14M9 7V4h6v3M7 7l1 13h8l1-13m-6 3v7m2-7v7"/>`)
-	textIcon = lineIcon(`<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8.5 8h7m-7 4h7m-7 4h4"/>`)
-	linkIcon = lineIcon(`<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1.7 1.7m2.7 3a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1.7-1.7"/>`)
-	closeIcon = lineIcon(`<path d="m7 7 10 10M17 7 7 17"/>`)
+	clockIcon    = lineIcon(`<circle cx="12" cy="12" r="8"/><path d="M12 7.5V12l3 1.5"/>`)
+	trashIcon    = lineIcon(`<path d="M5 7h14M9 7V4h6v3M7 7l1 13h8l1-13m-6 3v7m2-7v7"/>`)
+	textIcon     = lineIcon(`<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8.5 8h7m-7 4h7m-7 4h4"/>`)
+	linkIcon     = lineIcon(`<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1.7 1.7m2.7 3a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1.7-1.7"/>`)
+	closeIcon    = lineIcon(`<path d="m7 7 10 10M17 7 7 17"/>`)
 )
 
 func title(c *ui.Context, s string, cl ui.Color) {
@@ -221,7 +221,7 @@ func (p *panel) footer(c *ui.Context, col palette) {
 			}
 		}
 		if !p.settings {
-			keyHint(c, "⌘ 1–5", "粘贴", col)
+			keyHint(c, shortcutLabel("1–5"), "粘贴", col)
 			keyHint(c, "↑ ↓", "选择", col)
 			keyHint(c, "↵", "粘贴", col)
 		}
@@ -316,7 +316,7 @@ func (p *panel) resultsView(c *ui.Context, col palette) {
 				text(c, entryCaption(e, time.Now()), 11, col.muted).SingleLine()
 			})
 			if i < 5 {
-				pill(c, fmt.Sprintf("⌘ %d", i+1), col)
+				pill(c, shortcutLabel(strconv.Itoa(i+1)), col)
 			}
 			if iconButton(c, trashIcon, "删除此记录", 28, col, true).Clicked() {
 				deleteID = e.ID
@@ -399,11 +399,13 @@ func (p *panel) settingsView(c *ui.Context, col palette) {
 	})
 }
 
-var errorView = ui.View(func(c *ui.Context) {
-	col := colors(c.Theme().Dark)
-	c.Root().Background(col.bg)
-	ui.Column(c).Padding(26).Gap(10).Fill().Children(func() {
-		title(c, "ClipNote 无法读取历史", col.text)
-		text(c, "原历史文件没有被覆盖。请检查 ~/Library/Application Support/ClipNote/history.json 后重新打开。", 14, col.muted).MaxLines(3)
+func errorView(path string) *ui.Content {
+	return ui.View(func(c *ui.Context) {
+		col := colors(c.Theme().Dark)
+		c.Root().Background(col.bg)
+		ui.Column(c).Padding(26).Gap(10).Fill().Children(func() {
+			title(c, "ClipNote 无法读取历史", col.text)
+			text(c, "原历史文件没有被覆盖。请检查 "+path+" 后重新打开。", 14, col.muted).MaxLines(3)
+		})
 	})
-})
+}

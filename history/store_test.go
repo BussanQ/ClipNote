@@ -3,6 +3,7 @@ package history
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -47,7 +48,8 @@ func TestHistoryLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stat.Mode().Perm() != 0600 {
+	// Windows inherits the profile directory's ACL instead of POSIX mode bits.
+	if runtime.GOOS != "windows" && stat.Mode().Perm() != 0600 {
 		t.Fatalf("history permissions: %v", stat.Mode())
 	}
 }
